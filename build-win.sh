@@ -1,21 +1,31 @@
 #!/bin/bash
 set -e
 
-# Cấu hình mặc định
-USERNAME="admin2025"
+# Phát hiện số CPU thực tế
+TOTAL_CPU=$(nproc)
+# Phát hiện tổng RAM khả dụng (MB)
+TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
+# Để lại 512MB cho hệ điều hành, lấy max cho QEMU
+QEMU_RAM=$(( TOTAL_RAM > 2048 ? TOTAL_RAM - 1024 : TOTAL_RAM - 512 ))
+[ $QEMU_RAM -lt 1024 ] && QEMU_RAM=1024      # Win cài được tối thiểu 1GB
+
+# Chọn số CPU cho QEMU (ít nhất 1, tối đa bằng thực tế VPS)
+QEMU_CPUS=$(( TOTAL_CPU > 2 ? 2 : TOTAL_CPU ))
+
+USERNAME="admin25"
 PASSWORD="P@ssw0rd123"
 DISK_NAME="win.qcow2"
 DISK_SIZE="30G"
-RAM=4096
-CPUS=2
 RDP_PORT=3389
 WORKDIR="$HOME/win"
 mkdir -p "$WORKDIR" && cd "$WORKDIR"
 
-echo "[+] Cài công cụ cần thiết..."
+echo "[+] Cấu hình tự động:"
+echo "  Số CPU QEMU:  $QEMU_CPUS (VPS thực tế: $TOTAL_CPU)"
+echo "  RAM QEMU:     $QEMU_RAM MB (VPS thực tế: $TOTAL_RAM MB)"
+
 sudo apt update && sudo apt install -y qemu-kvm genisoimage wget curl
 
-# ======= MENU chọn ISO Windows =======
 echo ""
 echo "🖥️ Chọn bản Windows để build:"
 echo "1. Windows 10 LTSC x64 (bản nhẹ)"
@@ -59,7 +69,6 @@ wget -O win.iso "$WIN_ISO"
 echo "[+] Tải VirtIO driver..."
 wget -O virtio-win.iso https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
 
-# ======= Tạo file autounattend.xml =======
 echo "[+] Tạo file autounattend.xml..."
 cat > autounattend.xml <<EOF
 <?xml version="1.0"?>
@@ -118,18 +127,10 @@ mkdir -p iso && cp autounattend.xml iso/
 genisoimage -o autounattend.iso -r -J iso/
 
 echo "[+] Tạo ổ đĩa ảo..."
-qemu-img create -f qcow2 "$DISK_NAME" "$DISK_SIZE"
+qemu-img create -f qcow2 "$DISK_NAME" "30G"
 
 echo "[+] Khởi chạy cài đặt Windows..."
-nohup qemu-system-x86_64 \
-  -enable-kvm \
-  -m "$RAM" -smp "$CPUS" -cpu host \
-  -drive file="$DISK_NAME",format=qcow2 \
-  -cdrom win.iso \
-  -drive file=autounattend.iso,media=cdrom \
-  -drive file=virtio-win.iso,media=cdrom \
-  -net nic -net user,hostfwd=tcp::${RDP_PORT}-:3389 \
-  -nographic > qemu.log 2>&1 &
+nohup qemu-system-x86_64   -enable-kvm   -m "$QEMU_RAM"   -smp "$QEMU_CPUS"   -cpu host   -drive file="$DISK_NAME",format=qcow2   -cdrom win.iso   -drive file=autounattend.iso,media=cdrom   -drive file=virtio-win.iso,media=cdrom   -net nic -net user,hostfwd=tcp::${RDP_PORT}-:3389   -nographic > qemu.log 2>&1 &
 
 echo ""
 echo "✅ Windows đang được cài đặt âm thầm (headless)..."
