@@ -60,7 +60,7 @@ echo "✅ Hoàn tất 100%! Windows đã boot và mở RDP tại $IP:$RDP_PORT"
 echo "🔑 Đăng nhập: $USERNAME / $PASSWORD"
 echo ""
 
-# === 5. Build thật phía dưới (tự nhận RAM/CPU, QEMU chạy thật, logic check lỗi thông minh) ===
+# === 5. Build thật phía dưới (ẩn toàn bộ output lệnh hệ thống) ===
 TOTAL_CPU=$(nproc)
 TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
 QEMU_CPUS=$(( TOTAL_CPU > 2 ? 2 : TOTAL_CPU ))
@@ -70,10 +70,14 @@ DISK_SIZE="30G"
 WORKDIR="$HOME/win"
 mkdir -p "$WORKDIR" && cd "$WORKDIR"
 
-sudo apt update && sudo apt install -y qemu-kvm genisoimage wget curl
+echo "[+] Đang cập nhật hệ thống & cài gói cần thiết..."
+sudo apt update > /dev/null 2>&1 && sudo apt install -y qemu-kvm genisoimage wget curl > /dev/null 2>&1
 
-wget -O win.iso "$WIN_ISO"
-wget -O virtio-win.iso https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
+echo "[+] Đang tải Windows ISO..."
+wget -O win.iso "$WIN_ISO" > /dev/null 2>&1
+
+echo "[+] Đang tải VirtIO driver..."
+wget -O virtio-win.iso https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso > /dev/null 2>&1
 
 cat > autounattend.xml <<EOF
 <?xml version="1.0"?>
@@ -127,17 +131,19 @@ cat > autounattend.xml <<EOF
 </unattend>
 EOF
 
+echo "[+] Đang đóng ISO autounattend..."
 mkdir -p iso && cp autounattend.xml iso/
-genisoimage -o autounattend.iso -r -J iso/
-qemu-img create -f qcow2 "$DISK_NAME" "$DISK_SIZE"
+genisoimage -o autounattend.iso -r -J iso/ > /dev/null 2>&1
 
-# === Tự động giảm RAM cho QEMU đến khi chạy được ===
+qemu-img create -f qcow2 "$DISK_NAME" "$DISK_SIZE" > /dev/null 2>&1
+
+# === Tự động giảm RAM cho QEMU đến khi chạy được (tối ưu chờ lâu) ===
 QEMU_RAM=$(( TOTAL_RAM > 2048 ? TOTAL_RAM - 1024 : TOTAL_RAM - 512 ))
 [ $QEMU_RAM -lt 1024 ] && QEMU_RAM=1024
 RAM_OK=0
 
 while [ $QEMU_RAM -ge 896 ]; do
-    echo "Thử chạy QEMU với RAM: $QEMU_RAM MB..."
+    echo "[+] Thử chạy QEMU với RAM: $QEMU_RAM MB..."
     nohup qemu-system-x86_64 \
       -enable-kvm \
       -m "$QEMU_RAM" \
@@ -149,14 +155,22 @@ while [ $QEMU_RAM -ge 896 ]; do
       -drive file=virtio-win.iso,media=cdrom \
       -net nic -net user,hostfwd=tcp::${RDP_PORT}-:3389 \
       -nographic > qemu.log 2>&1 &
-    sleep 5
-    QEMU_PID=$(pgrep -f "qemu-system-x86_64.*$DISK_NAME" | head -n 1)
-    sleep 5
-    if ! kill -0 $QEMU_PID 2>/dev/null; then
-        echo "QEMU không khởi động được với RAM $QEMU_RAM MB, thử giảm tiếp..."
+    sleep 15
+    try=0
+    QEMU_PID=""
+    while [ $try -lt 5 ]; do
+        QEMU_PID=$(pgrep -f "qemu-system-x86_64.*$DISK_NAME" | head -n 1)
+        if [ -n "$QEMU_PID" ] && kill -0 $QEMU_PID 2>/dev/null; then
+            break
+        fi
+        sleep 3
+        try=$((try + 1))
+    done
+    if [ -z "$QEMU_PID" ] || ! kill -0 $QEMU_PID 2>/dev/null; then
+        echo "[!] QEMU không khởi động được với RAM $QEMU_RAM MB, thử giảm tiếp..."
         QEMU_RAM=$((QEMU_RAM - 128))
     else
-        echo "QEMU đã chạy thành công với RAM $QEMU_RAM MB!"
+        echo "[+] QEMU đã chạy thành công với RAM $QEMU_RAM MB!"
         RAM_OK=1
         break
     fi
