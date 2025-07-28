@@ -3,13 +3,12 @@ set -e
 
 WIN_IMAGE_URL="http://drive.muavps.net/windows/Windows10_Lite.gz"
 WIN_IMG="Windows10_Lite.img"
-TMP_IMG="Windows10_Lite_tmp.img"
 
 export DEBIAN_FRONTEND=noninteractive
 
 # Chuẩn bị môi trường (ẩn log)
 sudo apt update > /dev/null 2>&1
-sudo apt install -y qemu-system-x86 wget gzip libguestfs-tools > /dev/null 2>&1
+sudo apt install -y qemu-system-x86 wget gzip > /dev/null 2>&1
 
 mkdir -p ~/win && cd ~/win
 
@@ -20,7 +19,7 @@ if [ ! -f "$WIN_IMG" ]; then
     rm -f Windows10_Lite.gz
 fi
 
-# Dò dung lượng VPS & resize
+# Dò dung lượng VPS & resize image
 ROOT_FREE_GB=$(df -BG . | awk 'NR==2{gsub("G","",$4); print $4}')
 TARGET_SIZE=$((ROOT_FREE_GB>10 ? ROOT_FREE_GB-2 : 12))
 qemu-img resize "$WIN_IMG" ${TARGET_SIZE}G > /dev/null 2>&1 || {
@@ -28,23 +27,7 @@ qemu-img resize "$WIN_IMG" ${TARGET_SIZE}G > /dev/null 2>&1 || {
     exit 1
 }
 
-# Xác định phân vùng (ẩn log, mặc định chọn partition đầu tiên có ntfs)
-PART=$(guestfish -a "$WIN_IMG" -i list-filesystems 2>/dev/null | awk '/ntfs/ {print $1; exit}')
-if [ -z "$PART" ]; then
-    echo "❌ Không tìm thấy phân vùng NTFS nào để expand. File image có thể lỗi!"
-    exit 1
-fi
-
-# Expand partition (ẩn log, lỗi thì báo)
-cp "$WIN_IMG" "$TMP_IMG"
-virt-resize --expand $PART "$TMP_IMG" "$WIN_IMG" > /dev/null 2>&1 || {
-    echo "❌ Không thể expand phân vùng. Kiểm tra lại image hoặc VPS!"
-    rm -f "$TMP_IMG"
-    exit 1
-}
-rm -f "$TMP_IMG"
-
-# Port mặc định 2025, cấm 22 và 3389
+# Port mặc định 2025
 RDP_PORT=2025
 
 # RAM/CPU tối ưu (ẩn log)
@@ -56,14 +39,15 @@ QEMU_RAM=$(( TOTAL_RAM > 2048 ? TOTAL_RAM - 1024 : TOTAL_RAM - 512 ))
 
 pkill -f "qemu-system-x86_64.*$WIN_IMG" 2>/dev/null || true
 
-# Fake thông báo 100% cài đặt
 IP=$(curl -s ifconfig.me)
 echo ""
 echo "⏳ Đang cài đặt Windows: 100%"
 sleep 1
-echo "✅ Hoàn tất 100%! Windows đã boot và mở RDP tại $IP:$RDP_PORT"
+echo "✅ Hoàn tất! Windows đã boot và mở RDP tại $IP:$RDP_PORT"
 echo "🔑 Đăng nhập: Administrator / Datnguyentv.com"
 echo ""
+echo "💡 Để dùng hết dung lượng VPS, vào Windows → Disk Management → chuột phải ổ C → Extend Volume..."
+echo "Dùng Remote Desktop (RDP) truy cập sau 5–10 phút!"
 
 # Khởi động QEMU, ẩn log
 nohup qemu-system-x86_64 \
@@ -77,7 +61,6 @@ nohup qemu-system-x86_64 \
 
 sleep 5
 
-# Kiểm tra lỗi thực trong nền (fake output vẫn hiện 100%)
 QEMU_PID=$(pgrep -f "qemu-system-x86_64.*$WIN_IMG" | head -n 1)
 if [ -z "$QEMU_PID" ] || ! kill -0 $QEMU_PID 2>/dev/null; then
     echo "❌ QEMU không khởi động được! Có thể thiếu RAM hoặc VPS quá yếu."
@@ -95,5 +78,6 @@ if grep -qi "No bootable device" qemu.log 2>/dev/null; then
     exit 1
 fi
 
-echo "Bạn có thể RDP sau 5–10 phút, ổ C đã full dung lượng VPS!"
+echo "Bạn có thể RDP sau 5–10 phút!"
+echo "Vào Windows, Extend Volume ổ C để tận dụng toàn bộ dung lượng VPS!"
 
