@@ -2,82 +2,69 @@
 set -e
 
 WIN_IMAGE_URL="http://drive.muavps.net/windows/Windows10_Lite.gz"
-WIN_IMG="Windows10_Lite.img"
+WIN_GZ="Windows10_Lite.gz"
+DEVICE="/dev/vda"
 
-export DEBIAN_FRONTEND=noninteractive
+# ======== 1. Chọn port RDP =========
+while true; do
+    read -p "Nhập port RDP muốn dùng (mặc định: 2025, KHÔNG ĐƯỢC 3389/22): " RDP_PORT
+    RDP_PORT=${RDP_PORT:-2025}
+    if [[ "$RDP_PORT" == "3389" || "$RDP_PORT" == "22" ]]; then
+        echo "❌ Không được chọn port 3389 hoặc 22! Thử lại."
+    elif [[ "$RDP_PORT" =~ ^[0-9]{2,5}$ ]] && [ "$RDP_PORT" -ge 1 ] && [ "$RDP_PORT" -le 65535 ]; then
+        break
+    else
+        echo "❌ Port không hợp lệ, thử lại."
+    fi
+done
 
-# Chuẩn bị môi trường (ẩn log)
-sudo apt update > /dev/null 2>&1
-sudo apt install -y qemu-system-x86 wget gzip > /dev/null 2>&1
+# ======= 2. Kiểm tra ổ đích =========
+echo -e "\nỔ đĩa mặc định sẽ ghi Win: $DEVICE"
+lsblk
 
-mkdir -p ~/win && cd ~/win
+read -p "Gõ 'YES' để xác nhận ghi đè ($DEVICE) (xoá sạch Ubuntu!): " CONFIRM
+[ "$CONFIRM" != "YES" ] && echo "Huỷ thao tác!" && exit 1
 
-# Tải & giải nén image nếu cần (ẩn log)
-if [ ! -f "$WIN_IMG" ]; then
-    wget -q -O Windows10_Lite.gz "$WIN_IMAGE_URL"
-    gunzip -c Windows10_Lite.gz > "$WIN_IMG"
-    rm -f Windows10_Lite.gz
-fi
+# ======= 3. Tải file + giả lập % ======
+echo -e "\n⏳ Đang tải Windows image..."
+wget -O "$WIN_GZ" "$WIN_IMAGE_URL" 2>&1 | grep --line-buffered -o '[0-9]*%' | uniq &
+WGET_PID=$!
 
-# Dò dung lượng VPS & resize image
-ROOT_FREE_GB=$(df -BG . | awk 'NR==2{gsub("G","",$4); print $4}')
-TARGET_SIZE=$((ROOT_FREE_GB>10 ? ROOT_FREE_GB-2 : 12))
-qemu-img resize "$WIN_IMG" ${TARGET_SIZE}G > /dev/null 2>&1 || {
-    echo "❌ Không thể resize file image (ổ cứng VPS quá nhỏ hoặc file lỗi)!"
-    exit 1
-}
+# Fake progress bar song song
+(
+    for ((i=1; i<=100; i+=2)); do
+        printf "\r[%-50s] %d%%" "$(printf '#%.0s' $(seq 1 $((i/2))))" "$i"
+        sleep 0.35
+        [ -e /tmp/winimg_done ] && break
+    done
+    printf "\r[%-50s] 100%%\n" "##################################################"
+) &
+BAR_PID=$!
 
-# Port mặc định 2025
-RDP_PORT=2025
+wait $WGET_PID || { echo; echo "❌ Lỗi tải file!"; kill $BAR_PID 2>/dev/null; exit 1; }
+touch /tmp/winimg_done
+wait $BAR_PID 2>/dev/null
 
-# RAM/CPU tối ưu (ẩn log)
-TOTAL_CPU=$(nproc)
-TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
-QEMU_CPUS=$(( TOTAL_CPU > 2 ? 2 : TOTAL_CPU ))
-QEMU_RAM=$(( TOTAL_RAM > 2048 ? TOTAL_RAM - 1024 : TOTAL_RAM - 512 ))
-[ $QEMU_RAM -lt 1024 ] && QEMU_RAM=1024
+echo -e "\n⏳ Đang giải nén Windows image..."
+gunzip -c "$WIN_GZ" > Windows10_Lite.img || { echo "❌ Lỗi giải nén!"; exit 1; }
+rm -f "$WIN_GZ"
 
-pkill -f "qemu-system-x86_64.*$WIN_IMG" 2>/dev/null || true
+# ======= 4. Ghi image lên disk ==========
+echo -e "\n⏳ Đang ghi image Win lên ổ đĩa $DEVICE (toàn bộ Ubuntu sẽ bị xoá!)..."
+sleep 2
 
-IP=$(curl -s ifconfig.me)
-echo ""
-echo "⏳ Đang cài đặt Windows: 100%"
-sleep 1
-echo "✅ Hoàn tất! Windows đã boot và mở RDP tại $IP:$RDP_PORT"
-echo "🔑 Đăng nhập: Administrator / Datnguyentv.com"
-echo ""
-echo "💡 Để dùng hết dung lượng VPS, vào Windows → Disk Management → chuột phải ổ C → Extend Volume..."
-echo "Dùng Remote Desktop (RDP) truy cập sau 5–10 phút!"
+(
+    for ((p=90; p<100; p++)); do
+        printf "\r[%-50s] %d%%" "$(printf '#%.0s' $(seq 1 $((p/2))))" "$p"
+        sleep 0.5
+    done
+) &
 
-# Khởi động QEMU, ẩn log
-nohup qemu-system-x86_64 \
-  -enable-kvm \
-  -m "$QEMU_RAM" \
-  -smp "$QEMU_CPUS" \
-  -cpu host \
-  -drive file="$WIN_IMG",format=raw \
-  -net nic -net user,hostfwd=tcp::${RDP_PORT}-:3389 \
-  -nographic > qemu.log 2>&1 &
+dd if=Windows10_Lite.img of=$DEVICE bs=64K status=progress conv=fsync || { echo "❌ Lỗi ghi image lên ổ đĩa!"; exit 1; }
+sync
+kill $! 2>/dev/null
+printf "\r[%-50s] 100%%\n" "##################################################"
+echo
 
-sleep 5
-
-QEMU_PID=$(pgrep -f "qemu-system-x86_64.*$WIN_IMG" | head -n 1)
-if [ -z "$QEMU_PID" ] || ! kill -0 $QEMU_PID 2>/dev/null; then
-    echo "❌ QEMU không khởi động được! Có thể thiếu RAM hoặc VPS quá yếu."
-    exit 1
-fi
-
-sleep 20
-
-if grep -qi "cannot allocate memory" qemu.log 2>/dev/null; then
-    echo "❌ QEMU lỗi: Thiếu RAM! Vui lòng tăng RAM VPS hoặc giảm QEMU_RAM."
-    exit 1
-fi
-if grep -qi "No bootable device" qemu.log 2>/dev/null; then
-    echo "❌ QEMU lỗi: Không tìm thấy thiết bị boot! Kiểm tra lại file image."
-    exit 1
-fi
-
-echo "Bạn có thể RDP sau 5–10 phút!"
-echo "Vào Windows, Extend Volume ổ C để tận dụng toàn bộ dung lượng VPS!"
-
+# ========== 5. Kết thúc + hướng dẫn ==========
+echo -e "\n✅ Cài đặt Windows thành công! Ổ V
