@@ -30,10 +30,10 @@ else
     PASSWORD="P@ssw0rd123"
 fi
 
-# === 3. Chọn port RDP ngoài (mặc định 22, CẤM 3389) ===
+# === 3. Chọn port RDP ngoài (mặc định 2025, CẤM 3389) ===
 while true; do
-    read -p "Nhập port RDP ngoài muốn sử dụng (mặc định: 22, KHÔNG ĐƯỢC chọn 3389): " RDP_PORT
-    RDP_PORT=${RDP_PORT:-22}
+    read -p "Nhập port RDP ngoài muốn sử dụng (mặc định: 2025, KHÔNG ĐƯỢC chọn 3389): " RDP_PORT
+    RDP_PORT=${RDP_PORT:-2025}
     if [[ "$RDP_PORT" == "3389" ]]; then
         echo "❌ Không được chọn port 3389! Vui lòng chọn port khác."
     elif [[ "$RDP_PORT" =~ ^[0-9]{2,5}$ ]] && [ "$RDP_PORT" -ge 1 ] && [ "$RDP_PORT" -le 65535 ]; then
