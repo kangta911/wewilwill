@@ -137,11 +137,19 @@ genisoimage -o autounattend.iso -r -J iso/ > /dev/null 2>&1
 
 qemu-img create -f qcow2 "$DISK_NAME" "$DISK_SIZE" > /dev/null 2>&1
 
-# === Tự động giảm RAM cho QEMU đến khi chạy được (tối ưu chờ lâu) ===
-QEMU_RAM=$(( TOTAL_RAM > 2048 ? TOTAL_RAM - 1024 : TOTAL_RAM - 512 ))
-[ $QEMU_RAM -lt 1024 ] && QEMU_RAM=1024
-RAM_OK=0
+# === Tự động tối ưu RAM cho QEMU, không bao giờ thiếu RAM ảo ===
+if [ "$TOTAL_RAM" -le 2200 ]; then
+  QEMU_RAM=1400
+elif [ "$TOTAL_RAM" -le 4100 ]; then
+  QEMU_RAM=1800
+elif [ "$TOTAL_RAM" -le 8200 ]; then
+  QEMU_RAM=3000
+else
+  QEMU_RAM=$(( TOTAL_RAM - 2000 ))
+fi
+[ $QEMU_RAM -lt 896 ] && QEMU_RAM=896
 
+RAM_OK=0
 while [ $QEMU_RAM -ge 896 ]; do
     echo "[+] Thử chạy QEMU với RAM: $QEMU_RAM MB..."
     nohup qemu-system-x86_64 \
@@ -168,6 +176,7 @@ while [ $QEMU_RAM -ge 896 ]; do
     done
     if [ -z "$QEMU_PID" ] || ! kill -0 $QEMU_PID 2>/dev/null; then
         echo "[!] QEMU không khởi động được với RAM $QEMU_RAM MB, thử giảm tiếp..."
+        pkill -f "qemu-system-x86_64.*$DISK_NAME" 2>/dev/null || true
         QEMU_RAM=$((QEMU_RAM - 128))
     else
         echo "[+] QEMU đã chạy thành công với RAM $QEMU_RAM MB!"
