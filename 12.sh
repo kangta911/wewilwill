@@ -18,15 +18,13 @@ while true; do
     fi
 done
 
-# ======= 2. Kiểm tra ổ đích =========
+# ======= 2. Thông báo auto ghi đè =========
 echo -e "\nỔ đĩa mặc định sẽ ghi Win: $DEVICE"
 lsblk
-
-read -p "Gõ 'YES' để xác nhận ghi đè ($DEVICE) (xoá sạch Ubuntu!): " CONFIRM
-[ "$CONFIRM" != "YES" ] && echo "Huỷ thao tác!" && exit 1
+echo -e "\n⛔️ Đã tự động xác nhận: SẼ GHI ĐÈ toàn bộ $DEVICE, xoá sạch Ubuntu!\n"
 
 # ======= 3. Tải file + giả lập % ======
-echo -e "\n⏳ Đang tải Windows image..."
+echo -e "⏳ Đang tải Windows image..."
 wget -O "$WIN_GZ" "$WIN_IMAGE_URL" 2>&1 | grep --line-buffered -o '[0-9]*%' | uniq &
 WGET_PID=$!
 
@@ -67,4 +65,13 @@ printf "\r[%-50s] 100%%\n" "##################################################"
 echo
 
 # ========== 5. Kết thúc + hướng dẫn ==========
-echo -e "\n✅ Cài đặt Windows thành công! Ổ V
+echo -e "\n✅ Cài đặt Windows thành công! Ổ VPS đã bị ghi đè, Ubuntu sẽ không boot lại.\n"
+echo "🔑 Remote Desktop: IP <vps-ip> | Port: $RDP_PORT"
+echo "  User: Administrator | Pass: Datnguyentv.com"
+echo "💡 Sau khi reboot, chờ vài phút, truy cập RDP như trên!"
+echo "⛔️ VPS sẽ tự động mất SSH, bạn cần reboot bằng dashboard hoặc web console!"
+echo
+
+sleep 3
+echo "Đang reboot VPS..."
+reboot
