@@ -1,10 +1,9 @@
 #!/bin/bash
 set -e
 
-# Thông tin file img và thư mục
-IMG_URL="https://www.dropbox.com/scl/fi/wozij42y4dsj4begyjwj1/10-lite.img?rlkey=lyb704acrmr1k023b81w3jpsk&st=e3b81z4i&dl=1"
+IMG_URL="http://drive.muavps.net/file/Win2022UEFI.img"
 IMG_DIR="/var/lib/libvirt/images"
-IMG_FILE="$IMG_DIR/10-lite.img"
+IMG_FILE="$IMG_DIR/Win2022UEFI.img"
 RDP_PORT=2025
 VM_RAM=3072
 VM_CPU=2
@@ -14,7 +13,7 @@ cd "$IMG_DIR"
 
 echo "🟢 Đang kiểm tra & cài đặt các gói cần thiết..."
 sudo apt update
-sudo apt install -y qemu-utils qemu-kvm wget curl
+sudo apt install -y qemu-utils qemu-kvm wget curl ovmf
 
 if [ ! -f "$IMG_FILE" ]; then
   echo "🟢 Đang tải file Windows img về VPS..."
@@ -29,17 +28,24 @@ IMG_FORMAT=$(qemu-img info --output=json "$IMG_FILE" | grep -Po '"format":.*?[^\
 
 NET_MODEL="e1000"
 
-echo "🟢 Khởi động Windows VM trên QEMU/KVM với RDP port $RDP_PORT ..."
+# Boot với UEFI
+OVMF_FW="/usr/share/OVMF/OVMF_CODE.fd"
+if [ ! -f "$OVMF_FW" ]; then
+  OVMF_FW="/usr/share/OVMF/OVMF_CODE.fd"
+  if [ ! -f "$OVMF_FW" ]; then
+    OVMF_FW="/usr/share/qemu/OVMF_CODE.fd"
+  fi
+fi
+
+echo "🟢 Khởi động Windows VM UEFI trên QEMU/KVM với RDP port $RDP_PORT ..."
 qemu-system-x86_64 \
   -enable-kvm \
-  -nodefaults \
   -m $VM_RAM \
   -smp $VM_CPU \
   -cpu host \
-  -drive file="$IMG_FILE",format=$IMG_FORMAT,if=none,id=disk0 \
-  -device ich9-ahci,id=ahci \
-  -device ide-hd,drive=disk0,bus=ahci.0 \
+  -drive file="$IMG_FILE",format=$IMG_FORMAT \
   -net nic,model=$NET_MODEL -net user,hostfwd=tcp::${RDP_PORT}-:3389 \
+  -bios "$OVMF_FW" \
   -nographic
 
 IP=$(curl -s ifconfig.me)
