@@ -1,9 +1,10 @@
 #!/bin/bash
 set -e
 
-IMG_URL="http://drive.muavps.net/file/Win2022UEFI.img"
+# 1. Thông tin file image và thư mục
+IMG_URL="https://www.dropbox.com/scl/fi/wozij42y4dsj4begyjwj1/10-lite.img?rlkey=lyb704acrmr1k023b81w3jpsk&st=e3b81z4i&dl=1"
 IMG_DIR="/var/lib/libvirt/images"
-IMG_FILE="$IMG_DIR/Win2022UEFI.img"
+IMG_FILE="$IMG_DIR/10-lite.img"
 RDP_PORT=2025
 VM_RAM=3072
 VM_CPU=2
@@ -13,7 +14,7 @@ cd "$IMG_DIR"
 
 echo "🟢 Đang kiểm tra & cài đặt các gói cần thiết..."
 sudo apt update
-sudo apt install -y qemu-utils qemu-kvm wget curl ovmf
+sudo apt install -y qemu-utils qemu-kvm wget curl
 
 if [ ! -f "$IMG_FILE" ]; then
   echo "🟢 Đang tải file Windows img về VPS..."
@@ -26,30 +27,47 @@ echo "🟢 Kiểm tra định dạng file img..."
 qemu-img info "$IMG_FILE"
 IMG_FORMAT=$(qemu-img info --output=json "$IMG_FILE" | grep -Po '"format":.*?[^\\]",' | cut -d'"' -f4)
 
-NET_MODEL="e1000"
-
-# Boot với UEFI
-OVMF_FW="/usr/share/OVMF/OVMF_CODE.fd"
-if [ ! -f "$OVMF_FW" ]; then
-  OVMF_FW="/usr/share/OVMF/OVMF_CODE.fd"
-  if [ ! -f "$OVMF_FW" ]; then
-    OVMF_FW="/usr/share/qemu/OVMF_CODE.fd"
-  fi
+# 2. Tự động detect dung lượng ổ cứng thật của VPS
+# Ưu tiên /dev/vda, nếu không có thì thử /dev/sda
+if lsblk | grep -q vda; then
+  DEV_DISK="/dev/vda"
+else
+  DEV_DISK="/dev/sda"
 fi
 
-echo "🟢 Khởi động Windows VM UEFI trên QEMU/KVM với RDP port $RDP_PORT ..."
+DISK_SIZE=$(lsblk -b -d -n -o SIZE $DEV_DISK)
+DISK_SIZE_GB=$((DISK_SIZE/1024/1024/1024))
+# Chọn dung lượng tối đa hợp lý (nhỏ hơn ổ thật 1 chút)
+if [ $DISK_SIZE_GB -gt 120 ]; then
+  TARGET_SIZE="120G"
+elif [ $DISK_SIZE_GB -gt 40 ]; then
+  TARGET_SIZE="40G"
+else
+  TARGET_SIZE="20G"
+fi
+
+# 3. Resize file img (chỉ tăng, không làm mất dữ liệu)
+echo "🟢 Đang tăng dung lượng file img lên $TARGET_SIZE..."
+qemu-img resize "$IMG_FILE" $TARGET_SIZE
+
+NET_MODEL="e1000"
+
+echo "🟢 Khởi động Windows VM trên QEMU/KVM với RDP port $RDP_PORT ..."
 qemu-system-x86_64 \
   -enable-kvm \
   -m $VM_RAM \
   -smp $VM_CPU \
   -cpu host \
-  -drive file="$IMG_FILE",format=$IMG_FORMAT \
+  -hda "$IMG_FILE" \
   -net nic,model=$NET_MODEL -net user,hostfwd=tcp::${RDP_PORT}-:3389 \
-  -bios "$OVMF_FW" \
   -nographic
 
 IP=$(curl -s ifconfig.me)
 echo ""
 echo "✅ VM đã chạy xong!"
 echo "Bạn có thể truy cập Remote Desktop tới: ${IP}:${RDP_PORT}"
-echo "Tài khoản/mật khẩu: dùng thông tin đã setup sẵn trong file img."
+echo ""
+echo "💡 **Chú ý:** Ổ C trong Windows ban đầu sẽ vẫn chỉ ~9GB."
+echo "Sau khi đăng nhập Windows, hãy mở **Disk Management (diskmgmt.msc)**, click chuột phải vào ổ C: chọn **Extend Volume** để sử dụng hết $TARGET_SIZE dung lượng thật!"
+echo ""
+echo "Nếu Win Lite không có chức năng Extend Volume, hãy dùng phần mềm AOMEI Partition Assistant hoặc MiniTool Partition Wizard để mở rộng ổ C."
