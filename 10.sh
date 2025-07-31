@@ -34,14 +34,15 @@ IMG_FORMAT=$(qemu-img info --output=json "$IMG_FILE" | grep -Po '"format":.*?[^\
 # === 6. Chọn card mạng phù hợp (e1000) ===
 NET_MODEL="e1000"
 
-# === 7. Khởi động máy ảo với QEMU, ổ đĩa if=ide, NAT port RDP ra ngoài ===
+# === 7. Khởi động máy ảo với QEMU, ổ đĩa gắn bus IDE đúng chuẩn, NAT port RDP ra ngoài ===
 echo "🟢 Khởi động Windows VM trên QEMU/KVM với RDP port $RDP_PORT ..."
 qemu-system-x86_64 \
   -enable-kvm \
   -m $VM_RAM \
   -smp $VM_CPU \
   -cpu host \
-  -drive file="$IMG_FILE",format=$IMG_FORMAT,if=ide \
+  -drive file="$IMG_FILE",format=$IMG_FORMAT,if=none,id=disk0 \
+  -device ide-hd,drive=disk0,bus=ide.0 \
   -net nic,model=$NET_MODEL -net user,hostfwd=tcp::${RDP_PORT}-:3389 \
   -nographic
 
@@ -52,4 +53,4 @@ echo "✅ VM đã chạy xong!"
 echo "Bạn có thể truy cập Remote Desktop tới: ${IP}:${RDP_PORT}"
 echo "Tài khoản/mật khẩu: dùng thông tin đã setup sẵn trong file img."
 echo ""
-echo "Nếu bạn cần đổi model card mạng về 'virtio' để tăng tốc độ (khi đã cài VirtIO driver trong Windows), hãy sửa biến NET_MODEL và if=virtio trong script."
+echo "Nếu bạn cần đổi model card mạng về 'virtio' để tăng tốc độ (khi đã cài VirtIO driver trong Windows), hãy sửa biến NET_MODEL và dòng khởi tạo ổ đĩa thành if=virtio hoặc virtio-blk-pci."
