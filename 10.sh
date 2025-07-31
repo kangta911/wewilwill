@@ -13,7 +13,12 @@ VM_CPU=2
 sudo mkdir -p "$IMG_DIR"
 cd "$IMG_DIR"
 
-# === 3. Tải file img nếu chưa có ===
+# === 3. Đảm bảo đã cài qemu-utils, qemu-kvm, wget, curl ===
+echo "🟢 Đang kiểm tra & cài đặt các gói cần thiết..."
+sudo apt update
+sudo apt install -y qemu-utils qemu-kvm wget curl
+
+# === 4. Tải file img nếu chưa có ===
 if [ ! -f "$IMG_FILE" ]; then
   echo "🟢 Đang tải file Windows img về VPS..."
   wget -O "$IMG_FILE" "$IMG_URL"
@@ -21,16 +26,16 @@ else
   echo "🟢 File img đã tồn tại: $IMG_FILE"
 fi
 
-# === 4. Kiểm tra định dạng file img ===
+# === 5. Kiểm tra định dạng file img ===
 echo "🟢 Kiểm tra định dạng file img..."
 qemu-img info "$IMG_FILE"
 IMG_FORMAT=$(qemu-img info --output=json "$IMG_FILE" | grep -Po '"format":.*?[^\\]",' | cut -d'"' -f4)
 
-# === 5. Chọn card mạng phù hợp ===
+# === 6. Chọn card mạng phù hợp ===
 # Nếu chắc chắn đã có VirtIO driver thì để model=virtio cho hiệu năng tốt, không thì để e1000 cho chắc chắn nhận mạng luôn
 NET_MODEL="e1000"
 
-# === 6. Khởi động máy ảo với QEMU, NAT port RDP ra ngoài ===
+# === 7. Khởi động máy ảo với QEMU, NAT port RDP ra ngoài ===
 echo "🟢 Khởi động Windows VM trên QEMU/KVM với RDP port $RDP_PORT ..."
 qemu-system-x86_64 \
   -enable-kvm \
@@ -41,7 +46,7 @@ qemu-system-x86_64 \
   -net nic,model=$NET_MODEL -net user,hostfwd=tcp::${RDP_PORT}-:3389 \
   -nographic
 
-# === 7. Hướng dẫn truy cập ===
+# === 8. Hướng dẫn truy cập ===
 IP=$(curl -s ifconfig.me)
 echo ""
 echo "✅ VM đã chạy xong!"
