@@ -27,8 +27,7 @@ echo "🟢 Kiểm tra định dạng file img..."
 qemu-img info "$IMG_FILE"
 IMG_FORMAT=$(qemu-img info --output=json "$IMG_FILE" | grep -Po '"format":.*?[^\\]",' | cut -d'"' -f4)
 
-# 2. Tự động detect dung lượng ổ cứng thật của VPS
-# Ưu tiên /dev/vda, nếu không có thì thử /dev/sda
+# 2. Tự động detect dung lượng ổ cứng thật của VPS (không giới hạn)
 if lsblk | grep -q vda; then
   DEV_DISK="/dev/vda"
 else
@@ -37,17 +36,15 @@ fi
 
 DISK_SIZE=$(lsblk -b -d -n -o SIZE $DEV_DISK)
 DISK_SIZE_GB=$((DISK_SIZE/1024/1024/1024))
-# Chọn dung lượng tối đa hợp lý (nhỏ hơn ổ thật 1 chút)
-if [ $DISK_SIZE_GB -gt 120 ]; then
-  TARGET_SIZE="120G"
-elif [ $DISK_SIZE_GB -gt 40 ]; then
-  TARGET_SIZE="40G"
+
+# Resize đúng bằng ổ thật - trừ 2GB cho an toàn
+if [ $DISK_SIZE_GB -gt 10 ]; then
+  TARGET_SIZE="$((DISK_SIZE_GB - 2))G"
 else
-  TARGET_SIZE="20G"
+  TARGET_SIZE="${DISK_SIZE_GB}G"
 fi
 
-# 3. Resize file img (chỉ tăng, không làm mất dữ liệu)
-echo "🟢 Đang tăng dung lượng file img lên $TARGET_SIZE..."
+echo "🟢 Đang tăng dung lượng file img lên $TARGET_SIZE (ổ thật: ${DISK_SIZE_GB}GB)..."
 qemu-img resize "$IMG_FILE" $TARGET_SIZE
 
 NET_MODEL="e1000"
@@ -68,6 +65,6 @@ echo "✅ VM đã chạy xong!"
 echo "Bạn có thể truy cập Remote Desktop tới: ${IP}:${RDP_PORT}"
 echo ""
 echo "💡 **Chú ý:** Ổ C trong Windows ban đầu sẽ vẫn chỉ ~9GB."
-echo "Sau khi đăng nhập Windows, hãy mở **Disk Management (diskmgmt.msc)**, click chuột phải vào ổ C: chọn **Extend Volume** để sử dụng hết $TARGET_SIZE dung lượng thật!"
+echo "Sau khi đăng nhập Windows, hãy mở **Disk Management (diskmgmt.msc)**, click chuột phải vào ổ C: chọn **Extend Volume** để sử dụng hết $TARGET_SIZE (ổ thật VPS)!"
 echo ""
 echo "Nếu Win Lite không có chức năng Extend Volume, hãy dùng phần mềm AOMEI Partition Assistant hoặc MiniTool Partition Wizard để mở rộng ổ C."
