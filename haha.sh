@@ -1,52 +1,50 @@
 #!/bin/bash
 set -e
 
-IMG_URL="http://drive.muavps.net/windows/windows10LTSB.gz"
-IMG_GZ="windows10LTSB.gz"
-IMG_RAW="windows10LTSB.img"
-RDP_PORT=2025 # bạn có thể cho phép người dùng nhập nếu thích
+# Thông tin file img và thư mục
+IMG_URL="https://www.dropbox.com/scl/fi/wozij42y4dsj4begyjwj1/10-lite.img?rlkey=lyb704acrmr1k023b81w3jpsk&st=e3b81z4i&dl=1"
+IMG_DIR="/var/lib/libvirt/images"
+IMG_FILE="$IMG_DIR/10-lite.img"
+RDP_PORT=2025
+VM_RAM=3072    # MB
+VM_CPU=2
 
-DEVICE="/dev/vda"  # đa số VPS DO sẽ là vda, có thể cần kiểm tra lại
+sudo mkdir -p "$IMG_DIR"
+cd "$IMG_DIR"
 
-echo "=== Cảnh báo: Toàn bộ dữ liệu ổ $DEVICE sẽ bị GHI ĐÈ bằng Windows ==="
-echo "== Đang chuẩn bị tải & ghi image Windows, thao tác tự động 100% =="
-sleep 2
+echo "🟢 Đang kiểm tra & cài đặt các gói cần thiết..."
+sudo apt update
+sudo apt install -y qemu-utils qemu-kvm wget curl
 
-# 1. Cài công cụ cần thiết
-sudo apt update -y > /dev/null 2>&1
-sudo apt install -y wget gzip curl > /dev/null 2>&1
-
-cd /root || cd ~
-
-# 2. Tải và giải nén image nếu chưa có
-if [ ! -f "$IMG_RAW" ]; then
-  echo "[+] Đang tải image Windows..."
-  wget -O "$IMG_GZ" "$IMG_URL"
-  echo "[+] Đang giải nén..."
-  gunzip -c "$IMG_GZ" > "$IMG_RAW"
-  rm -f "$IMG_GZ"
+if [ ! -f "$IMG_FILE" ]; then
+  echo "🟢 Đang tải file Windows img về VPS..."
+  wget -O "$IMG_FILE" "$IMG_URL"
+else
+  echo "🟢 File img đã tồn tại: $IMG_FILE"
 fi
 
-# 3. Xác định thiết bị ghi đè, tự động tìm thiết bị root lớn nhất (nếu cần)
-# DEVICE=$(lsblk -ndo NAME,SIZE,TYPE | awk '$3=="disk"{print "/dev/"$1,$2}' | sort -k2 -rh | head -n1 | awk '{print $1}')
+echo "🟢 Kiểm tra định dạng file img..."
+qemu-img info "$IMG_FILE"
+IMG_FORMAT=$(qemu-img info --output=json "$IMG_FILE" | grep -Po '"format":.*?[^\\]",' | cut -d'"' -f4)
 
-# 4. Ghi đè image lên ổ cứng
-echo "[+] Ghi đè Windows lên $DEVICE (toàn bộ Ubuntu sẽ bị xoá!)"
-sleep 3
-sync
-dd if="$IMG_RAW" of="$DEVICE" bs=100M status=progress conv=fsync
+NET_MODEL="e1000"
 
-sync
+echo "🟢 Khởi động Windows VM trên QEMU/KVM với RDP port $RDP_PORT ..."
 
-echo "[+] Đã ghi xong Windows image. VPS sẽ shutdown (tự động)."
-echo "== Sau khi máy khởi động lại (có thể 2–5 phút), dùng Remote Desktop kết nối =="
+# LỆNH TỐI GIẢN, ĐẢM BẢO KHÔNG BAO GIỜ LỖI TRÙNG BUS
+qemu-system-x86_64 \
+  -enable-kvm \
+  -m $VM_RAM \
+  -smp $VM_CPU \
+  -cpu host \
+  -hda "$IMG_FILE" \
+  -net nic,model=$NET_MODEL -net user,hostfwd=tcp::${RDP_PORT}-:3389 \
+  -nographic
+
 IP=$(curl -s ifconfig.me)
-echo "▶ IP: $IP"
-echo "▶ PORT: $RDP_PORT"
-echo "▶ User: Administrator"
-echo "▶ Pass: Datnguyentv.com"
 echo ""
-echo "✅ Nếu image chuẩn, khi boot lại sẽ nhận full ổ cứng (extend trong Windows nếu cần), có mạng, vào RDP bình thường."
-echo "== Tắt máy trong 10 giây..."
-sleep 10
-poweroff
+echo "✅ VM đã chạy xong!"
+echo "Bạn có thể truy cập Remote Desktop tới: ${IP}:${RDP_PORT}"
+echo "Tài khoản/mật khẩu: dùng thông tin đã setup sẵn trong file img."
+echo ""
+echo "Nếu bạn muốn chuyển sang VirtIO để tối ưu tốc độ, hãy cài driver VirtIO trong Windows rồi chỉnh lại tham số card mạng thành virtio."
