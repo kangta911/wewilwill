@@ -5,18 +5,8 @@ WIN_IMAGE_URL="https://www.dropbox.com/scl/fi/wozij42y4dsj4begyjwj1/10-lite.img?
 WIN_IMG="10-lite.img"
 DEVICE="/dev/vda"
 
-# ======== 1. Chọn port RDP =========
-while true; do
-    read -p "Nhập port RDP muốn dùng (mặc định: 2025, KHÔNG ĐƯỢC 3389/22): " RDP_PORT
-    RDP_PORT=${RDP_PORT:-2025}
-    if [[ "$RDP_PORT" == "3389" || "$RDP_PORT" == "22" ]]; then
-        echo "❌ Không được chọn port 3389 hoặc 22! Thử lại."
-    elif [[ "$RDP_PORT" =~ ^[0-9]{2,5}$ ]] && [ "$RDP_PORT" -ge 1 ] && [ "$RDP_PORT" -le 65535 ]; then
-        break
-    else
-        echo "❌ Port không hợp lệ, thử lại."
-    fi
-done
+# ======== 1. Đặt port RDP mặc định =========
+RDP_PORT=2025
 
 # ======= 2. Cảnh báo ghi đè =========
 echo -e "\n💥 SẼ GHI ĐÈ TOÀN BỘ $DEVICE! Ubuntu sẽ bị xoá."
