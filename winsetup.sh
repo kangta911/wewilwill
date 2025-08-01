@@ -6,7 +6,7 @@ IMG_URL="https://www.dropbox.com/scl/fi/wozij42y4dsj4begyjwj1/10-lite.img?rlkey=
 IMG_DIR="/var/lib/libvirt/images"
 IMG_FILE="$IMG_DIR/10-lite.img"
 RDP_PORT=2025
-VM_RAM=3072
+VM_RAM=1024    # <= Đã giảm RAM xuống 1024MB (1GB)
 VM_CPU=2
 
 sudo mkdir -p "$IMG_DIR"
