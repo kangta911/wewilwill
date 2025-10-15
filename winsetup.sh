@@ -83,18 +83,17 @@ else
   echo "➡  Không có /dev/kvm ⇒ dùng TCG (chậm hơn)."
 fi
 
-# Headless, KHÔNG VNC
 qemu-system-x86_64 \
   $ACCEL -smp "$VM_CPU" -m "$VM_RAM" \
   -name "$VM_NAME" \
   -rtc base=localtime \
   -drive file="$IMG_FILE",format="$IMG_FORMAT",if=ide,cache=none,aio=threads \
-  -netdev user,id=n1,hostfwd=tcp::${RDP_PORT}-:3389 \
-  -device e1000,netdev=n1 \
+  -netdev user,id=n1,hostfwd=tcp::${RDP_PORT}-:3389,hostfwd=udp::${RDP_PORT}-:3389 \
+  -device virtio-net-pci,netdev=n1 \
   -usb -device usb-tablet \
   -display none \
   -daemonize
 
 echo "✅ VM đã khởi chạy nền."
-echo "🔁 RDP forward: host:${RDP_PORT} -> guest:3389"
+echo "🔁 RDP forward: host:${RDP_PORT} -> guest:3389 (TCP+UDP)"
 echo "ℹ️  Dùng RDP:  mstsc /v:<IP_HOST>:${RDP_PORT}"
