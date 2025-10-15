@@ -6,9 +6,9 @@ IMG_URL="https://www.dropbox.com/scl/fi/wozij42y4dsj4begyjwj1/10-lite.img?rlkey=
 IMG_DIR="/var/lib/libvirt/images"
 IMG_FILE="$IMG_DIR/10-lite.img"
 RDP_PORT="${RDP_PORT:-2025}"     # export RDP_PORT=4000 để đổi nhanh
-VM_NAME="win10lite"
-VM_RAM="${VM_RAM:-2048}"         # export VM_RAM=4096 nếu muốn
-VM_CPU="${VM_CPU:-2}"
+VM_NAME="${VM_NAME:-win10lite}"
+VM_RAM="${VM_RAM:-2048}"         # MB | export VM_RAM=4096 nếu muốn
+VM_CPU="${VM_CPU:-2}"            # vCPU | export VM_CPU=4 nếu muốn
 
 # ====== UTILS ======
 log() { echo -e "$*"; }
@@ -25,12 +25,10 @@ apt_wait_unlock() {
   )
   while :; do
     local busy=0
-    # Nếu có tiến trình apt/dpkg đang chạy -> chờ
     if pgrep -fa 'apt|dpkg|unattended' >/dev/null 2>&1; then
       busy=1
     else
       busy=0
-      # Không có tiến trình; nếu còn file lock cũ thì cũng chờ thêm 1 nhịp
       for f in "${locks[@]}"; do
         [[ -e "$f" ]] && { busy=1; break; }
       done
@@ -42,13 +40,10 @@ apt_wait_unlock() {
 
     (( waited++ ))
     if (( waited >= timeout )); then
-      log "⚠️  Hết thời gian chờ APT (${timeout}s). Thử dừng service apt-daily & unattended-upgrades."
+      log "⚠️  Hết thời gian chờ APT (${timeout}s). Thử dừng apt-daily & unattended-upgrades."
       systemctl stop apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
       systemctl kill --kill-who=main --signal=TERM apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
       sleep 5
-      if pgrep -fa 'apt|dpkg|unattended' >/dev/null 2>&1; then
-        log "⚠️  Vẫn còn tiến trình APT. Sẽ tiếp tục cố gắng."
-      fi
       waited=0
     else
       sleep 1
@@ -59,7 +54,6 @@ apt_wait_unlock() {
 apt_safe_install() {
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
-    # đảm bảo dpkg ở trạng thái ok
     apt_wait_unlock 60
     dpkg --configure -a >/dev/null 2>&1 || true
     apt_wait_unlock 60
@@ -67,10 +61,8 @@ apt_safe_install() {
     apt_wait_unlock 60
 
     local pkgs=(qemu-system-x86 qemu-utils wget curl)
-    # ufw nếu có
     if apt-cache show ufw >/dev/null 2>&1; then pkgs+=(ufw); fi
 
-    # retry 3 lần cài gói
     local i
     for i in {1..3}; do
       apt_wait_unlock 120
@@ -82,6 +74,7 @@ apt_safe_install() {
     done
     log "❌ Cài gói bằng apt-get thất bại sau 3 lần."
     return 1
+
   elif command -v dnf >/dev/null 2>&1; then
     dnf install -y qemu-kvm qemu-img wget curl || true
   elif command -v yum >/dev/null 2>&1; then
@@ -105,7 +98,7 @@ open_ports() {
   if command -v nft >/dev/null 2>&1; then
     nft add rule inet filter input tcp dport "$port" accept 2>/dev/null || true
     nft add rule inet filter input udp dport "$port" accept 2>/dev/null || true
-  end
+  fi
 }
 
 # ====== PREP ======
@@ -135,8 +128,8 @@ IMG_FORMAT="$(qemu-img info --output=json "$IMG_FILE" 2>/dev/null | sed -n 's/.*
 log "➡  Format: $IMG_FORMAT"
 
 # ====== RESIZE (theo ổ vật lý, chừa 2GB) ======
-if lsblk >/dev/null 2>&1; then
-  if lsblk | grep -q '^vda'; then DEV_DISK="/dev/vda"; else DEV_DISK="/dev/sda"; fi
+if command -v lsblk >/dev/null 2>&1; then
+  if lsblk | awk '{print $1}' | grep -q '^vda$'; then DEV_DISK="/dev/vda"; else DEV_DISK="/dev/sda"; fi
   if [[ -b "$DEV_DISK" ]]; then
     DISK_SIZE=$(lsblk -b -d -n -o SIZE "$DEV_DISK")
     DISK_SIZE_GB=$((DISK_SIZE/1024/1024/1024))
@@ -164,7 +157,7 @@ if [[ -e /dev/kvm ]]; then
   log "➡  Dùng KVM (/dev/kvm có sẵn)."
 else
   ACCEL="-accel tcg,thread=multi -cpu max"
-  log "➡  Không có /dev/kvm ⇒ dùng TCG (chậm hơn)."
+  log "➡️  Không có /dev/kvm ⇒ dùng TCG (chậm hơn)."
 fi
 
 # Chọn AIO tốt nhất mà QEMU hỗ trợ
